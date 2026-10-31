@@ -270,25 +270,28 @@ class DirectONNXYoloEngine:
         meta = self.session.get_modelmeta().custom_metadata_map
         self.names = ast.literal_eval(meta.get('names', '{}'))
 
-        dummy = np.zeros((1, 3, 256, 256), dtype=np.float32)
+        inp_shape = self.session.get_inputs()[0].shape
+        self.imgsz = inp_shape[2] if len(inp_shape) >= 4 and isinstance(inp_shape[2], int) else 416
+        dummy = np.zeros((1, 3, self.imgsz, self.imgsz), dtype=np.float32)
         self.session.run(None, {self.input_name: dummy})
 
     def predict(self, bgr_img, conf_thres=MIN_CONFIDENCE, iou_thres=0.45):
         if bgr_img is None or bgr_img.size == 0:
             return []
+        sz = self.imgsz
         h, w = bgr_img.shape[:2]
-        scale = min(256.0 / h, 256.0 / w)
+        scale = min(float(sz) / h, float(sz) / w)
         nw = int(round(w * scale))
         nh = int(round(h * scale))
-        dw = (256 - nw) // 2
-        dh = (256 - nh) // 2
+        dw = (sz - nw) // 2
+        dh = (sz - nh) // 2
 
         interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
         resized = cv2.resize(bgr_img, (nw, nh), interpolation=interp)
         canvas = cv2.copyMakeBorder(
             resized,
-            dh, 256 - nh - dh,
-            dw, 256 - nw - dw,
+            dh, sz - nh - dh,
+            dw, sz - nw - dw,
             cv2.BORDER_CONSTANT,
             value=(114, 114, 114)
         )

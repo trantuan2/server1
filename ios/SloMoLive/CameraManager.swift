@@ -1370,11 +1370,21 @@ public class CardDetector: NSObject, ObservableObject {
     private var lastInferenceTime: Double = 0.0
     private let ciContext = CIContext(options: [CIContextOption.useSoftwareRenderer: false])
 
-    // Nhận diện theo chu kỳ: Xuất hiện trong ô đỏ -> Còn trong ô đỏ -> Biến mất khỏi ô đỏ
-    private var currentCardInBox: String? = nil
-    private var currentCardBestSharpness: Double = 0.0
-    private var lastCardSeenTime: TimeInterval = 0.0
-    private var lastSharpnessCheckTime: TimeInterval = 0.0
+    // Nhận diện Pass-Through Burst Peak Voting (120fps) khi bài lướt qua ô soi
+    private struct PassVote {
+        var count: Int
+        var totalConf: Int
+        var peakConf: Int
+    }
+    private var passVotes: [String: PassVote] = [:]
+    private var isPassActive = false
+    private var passStartTime: TimeInterval = 0.0
+    private var passLastSeenTime: TimeInterval = 0.0
+    private var passBestSharpness: Double = 0.0
+    private var passBestImageBase64: String? = nil
+    private var passBestCard: String? = nil
+    private var lastLockedCard: String? = nil
+    private var lockCooldownUntil: TimeInterval = 0.0
 
     @Published public var isModelLoaded: Bool = false
 
@@ -1446,68 +1456,22 @@ public class CardDetector: NSObject, ObservableObject {
             defer { self?.isBusy = false }
             guard let self = self else { return }
 
-            // 2. ĐỐI XỨNG CAM TRƯỚC NGAY TỪ ĐẦU (Chạy siêu tốc 1.8ms trên Apple Neural Engine):
-            // Với Cam trước: .upMirrored (lật ngược lại số và chất về dạng xuôi chuẩn 100% tại chỗ)
-            // Với Cam sau: .up (chuẩn 100%)
+            // 2. NHẬN DIỆN GÓC BÀI ĐỐI XỨNG NGUYÊN BẢN (1 Pass siêu tốc ~1.8ms trên Apple Neural Engine):
+            // Model góc in (Corner Box) đã học sẵn cả 2 góc đối xứng (xuôi và ngược 180°), góc nghiêng và lật gương.
+            // Cam trước: .upMirrored | Cam sau: .up
             let primaryOrient: CGImagePropertyOrientation = isFront ? .upMirrored : .up
             let primaryHandler = VNImageRequestHandler(ciImage: croppedPatch, orientation: primaryOrient, options: [:])
-            var eval = self.evaluateVisionHandler(primaryHandler)
-            var detected = eval.detected
-            var bestLiveCandidate = eval.rawBest
-            var bestAngle = "0°"
-
-            // 3. CHỈ XOAY KHI KHÔNG NHẬN DIỆN ĐƯỢC:
-            if detected == nil {
-                // Thử góc ngược 180 độ (khi người chia cầm bài chúc đầu vào camera)
-                let secOrient: CGImagePropertyOrientation = isFront ? .downMirrored : .down
-                let secHandler = VNImageRequestHandler(ciImage: croppedPatch, orientation: secOrient, options: [:])
-                let secEval = self.evaluateVisionHandler(secHandler)
-                if let secDet = secEval.detected {
-                    detected = secDet
-                    bestLiveCandidate = secDet
-                    bestAngle = "180°"
-                } else if let secRaw = secEval.rawBest, (bestLiveCandidate == nil || secRaw.conf > (bestLiveCandidate?.conf ?? 0)) {
-                    bestLiveCandidate = secRaw
-                    bestAngle = "180°"
-                }
-            }
-
-            if detected == nil {
-                // Thử góc xoay 90 độ
-                let sideOrient: CGImagePropertyOrientation = isFront ? .rightMirrored : .right
-                let sideHandler = VNImageRequestHandler(ciImage: croppedPatch, orientation: sideOrient, options: [:])
-                let sideEval = self.evaluateVisionHandler(sideHandler)
-                if let sideDet = sideEval.detected {
-                    detected = sideDet
-                    bestLiveCandidate = sideDet
-                    bestAngle = "90°"
-                } else if let sideRaw = sideEval.rawBest, (bestLiveCandidate == nil || sideRaw.conf > (bestLiveCandidate?.conf ?? 0)) {
-                    bestLiveCandidate = sideRaw
-                    bestAngle = "90°"
-                }
-            }
-
-            if detected == nil {
-                // Thử góc xoay 270 độ (-90 độ)
-                let leftOrient: CGImagePropertyOrientation = isFront ? .leftMirrored : .left
-                let leftHandler = VNImageRequestHandler(ciImage: croppedPatch, orientation: leftOrient, options: [:])
-                let leftEval = self.evaluateVisionHandler(leftHandler)
-                if let leftDet = leftEval.detected {
-                    detected = leftDet
-                    bestLiveCandidate = leftDet
-                    bestAngle = "270°"
-                } else if let leftRaw = leftEval.rawBest, (bestLiveCandidate == nil || leftRaw.conf > (bestLiveCandidate?.conf ?? 0)) {
-                    bestLiveCandidate = leftRaw
-                    bestAngle = "270°"
-                }
-            }
+            let eval = self.evaluateVisionHandler(primaryHandler)
+            let detected = eval.detected
+            let bestLiveCandidate = eval.rawBest
+            let bestAngle = "0°"
 
             // Cập nhật Live Debug Scan HUD lên màn hình iOS (nhảy real-time từng frame 120fps)
             if let cand = bestLiveCandidate {
                 RoiSyncManager.shared.updateLiveScanDebug(card: cand.cardCode, conf: cand.conf, angle: bestAngle)
             }
 
-            // 4. Xử lý kết quả nhận diện
+            // 3. Xử lý Pass-Through Burst Voting khi lá bài lướt qua ô soi
             if let d = detected {
                 self.processCardCandidate(cardCode: d.cardCode, conf: d.conf, pixelBuffer: pixelBuffer, roiRect: roiRect, isFront: isFront)
             } else {
@@ -1576,62 +1540,85 @@ public class CardDetector: NSObject, ObservableObject {
 
     private func checkCardDisappeared() {
         let now = Date().timeIntervalSince1970
-        // Nếu đã hơn 0.20 giây không thấy lá bài nào trong ô đỏ -> LÁ BÀI ĐÃ BIẾN MẤT KHỎI Ô!
-        if let card = currentCardInBox, (now - lastCardSeenTime) > 0.20 {
-            NSLog("[CardDetector] 💨 Lá bài %@ đã BIẾN MẤT khỏi ô đỏ! Sẵn sàng đón lá tiếp theo.", card)
-            currentCardInBox = nil
-            currentCardBestSharpness = 0.0
+        guard isPassActive else { return }
+
+        // Khi lá bài đã lướt ra khỏi ô soi (không thấy >= 0.12s / ~14 frame 120fps)
+        if (now - passLastSeenTime) >= 0.12 {
+            isPassActive = false
+            // Tìm lá bài chiến thắng đạt điểm tin cậy tích lũy cao nhất
+            if let winner = passVotes.max(by: { $0.value.totalConf < $1.value.totalConf }),
+               winner.value.count >= 2 { // Cần ít nhất 2 frame để triệt tiêu hoàn toàn nhiễu ảo
+                let winnerCard = winner.key
+                if lastLockedCard != winnerCard || now > lockCooldownUntil {
+                    commitLockedCard(
+                        cardCode: winnerCard,
+                        conf: winner.value.peakConf,
+                        sharpness: passBestSharpness,
+                        imageBase64: passBestImageBase64
+                    )
+                }
+            }
+            passVotes.removeAll()
+            passBestCard = nil
+            passBestImageBase64 = nil
+            passBestSharpness = 0.0
             RoiSyncManager.shared.clearLiveScanDebug()
         }
     }
 
     private func processCardCandidate(cardCode: String, conf: Int, pixelBuffer: CVPixelBuffer, roiRect: CGRect, isFront: Bool) {
         let now = Date().timeIntervalSince1970
-        lastCardSeenTime = now
+        passLastSeenTime = now
 
-        let isSameCardInBox = (currentCardInBox == cardCode)
+        if !isPassActive {
+            isPassActive = true
+            passStartTime = now
+            passVotes.removeAll()
+            passBestSharpness = 0.0
+            passBestImageBase64 = nil
+            passBestCard = nil
+        }
 
-        if !isSameCardInBox {
-            // 🎯 LÁ BÀI VỪA XUẤT HIỆN TRONG Ô ĐỎ! (Lá mới, hoặc đổi sang lá khác)
-            currentCardInBox = cardCode
+        // Tích lũy điểm voting trong suốt chu kỳ bài lướt qua ô
+        var vote = passVotes[cardCode] ?? PassVote(count: 0, totalConf: 0, peakConf: 0)
+        vote.count += 1
+        vote.totalConf += conf
+        vote.peakConf = max(vote.peakConf, conf)
+        passVotes[cardCode] = vote
 
-            let (base64Image, sharpness) = extractCroppedImageAndSharpness(from: pixelBuffer, roiRect: roiRect, isFront: isFront)
-            currentCardBestSharpness = sharpness
+        // Lấy frame nét nhất (Peak Sharpness Selection)
+        let (base64Image, sharpness) = extractCroppedImageAndSharpness(from: pixelBuffer, roiRect: roiRect, isFront: isFront)
+        if sharpness > passBestSharpness {
+            passBestSharpness = sharpness
+            passBestImageBase64 = base64Image
+            passBestCard = cardCode
+        }
 
-            NSLog("[CardDetector] 🎯 120fps BÀI MỚI XUẤT HIỆN: %@ (%d%%) | Nét=%.1f | Ảnh=%@",
-                  cardCode, conf, sharpness, base64Image != nil ? "CÓ" : "KHÔNG")
+        // Nếu bài nằm yên trong ô >= 4 frame liên tiếp (không lướt đi): Khóa chốt sớm
+        if vote.count >= 4 && (lastLockedCard != cardCode || now > lockCooldownUntil) {
+            commitLockedCard(
+                cardCode: cardCode,
+                conf: vote.peakConf,
+                sharpness: passBestSharpness,
+                imageBase64: passBestImageBase64
+            )
+        }
+    }
 
-            DispatchQueue.main.async {
-                RoiSyncManager.shared.notifyCardDetected(
-                    cardCode: cardCode,
-                    conf: conf,
-                    sharpness: sharpness,
-                    imageBase64: base64Image,
-                    updateFrameOnly: false
-                )
-            }
-        } else {
-            // Lá bài này ĐANG CÒN NẰM TRONG Ô ĐỎ!
-            // Tuyệt đối không chia thêm vào cửa nào!
-            // Giữ nhịp kiểm tra 80ms/lần để máy siêu mát và AI 120fps chạy hết tốc lực
-            guard (now - lastSharpnessCheckTime) >= 0.08 else { return }
-            lastSharpnessCheckTime = now
+    private func commitLockedCard(cardCode: String, conf: Int, sharpness: Double, imageBase64: String?) {
+        let now = Date().timeIntervalSince1970
+        lastLockedCard = cardCode
+        lockCooldownUntil = now + 0.35 // Chống chia trùng lặp trong 350ms
 
-            let (base64Image, sharpness) = extractCroppedImageAndSharpness(from: pixelBuffer, roiRect: roiRect, isFront: isFront)
-            if sharpness > (currentCardBestSharpness + 15.0) {
-                let oldSharp = currentCardBestSharpness
-                currentCardBestSharpness = sharpness
-                NSLog("[CardDetector] ✨ 120fps NÂNG CẤP ẢNH NÉT NHẤT cho %@: %.1f -> %.1f", cardCode, oldSharp, sharpness)
-                DispatchQueue.main.async {
-                    RoiSyncManager.shared.notifyCardDetected(
-                        cardCode: cardCode,
-                        conf: conf,
-                        sharpness: sharpness,
-                        imageBase64: base64Image,
-                        updateFrameOnly: true
-                    )
-                }
-            }
+        NSLog("[CardDetector] 🎯 120fps PASS-THROUGH CHỐT BÀI LƯỚT: %@ (%d%%) | Nét=%.1f", cardCode, conf, sharpness)
+        DispatchQueue.main.async {
+            RoiSyncManager.shared.notifyCardDetected(
+                cardCode: cardCode,
+                conf: conf,
+                sharpness: sharpness,
+                imageBase64: imageBase64,
+                updateFrameOnly: false
+            )
         }
     }
 

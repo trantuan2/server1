@@ -53,7 +53,8 @@ server/media/
 # Test scripts & benchmarks
 test_*
 benchmark_*
+52la/
 server/ai/
-!server/ai/cards_yolov8.pt
+server/ai/cards_yolov8.pt
 view_images.html
 
