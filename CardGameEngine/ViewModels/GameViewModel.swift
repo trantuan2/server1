@@ -23,8 +23,9 @@ public class GameViewModel: ObservableObject {
         }
     }
     
-    @Published public var suitPreset: SuitRulePreset = .north {
+    @Published public var suitPreset: SuitRulePreset {
         didSet {
+            UserDefaults.standard.set(suitPreset.rawValue, forKey: "saved_suit_preset")
             if hasCalculatedResults {
                 calculateResults()
             }
@@ -170,6 +171,12 @@ public class GameViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     
     public init() {
+        if let savedPresetRaw = UserDefaults.standard.string(forKey: "saved_suit_preset"),
+           let savedPreset = SuitRulePreset(rawValue: savedPresetRaw) {
+            self.suitPreset = savedPreset
+        } else {
+            self.suitPreset = .diamondFirst
+        }
         self.isRankOnlyMode = UserDefaults.standard.bool(forKey: "isRankOnlyMode")
         LicenseService.shared.checkLicenseOffline()
         let savedVoice = UserDefaults.standard.bool(forKey: "isVoiceMode")

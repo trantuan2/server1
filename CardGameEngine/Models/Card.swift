@@ -2,6 +2,7 @@ import Foundation
 
 // MARK: - Suit Rule Preset
 public enum SuitRulePreset: String, CaseIterable, Identifiable, Codable {
+    case diamondFirst = "♦ Rô > ♥ Cơ > ♣ Chuồn > ♠ Bích"
     case north = "Miền Bắc (♥ Cơ > ♦ Rô > ♣ Tép > ♠ Bích)"
     case southA = "Miền Nam - Bích Lớn (♠ Bích > ♦ Rô > ♥ Cơ > ♣ Tép)"
     case southB = "Miền Nam - Cơ Lớn (♥ Cơ > ♦ Rô > ♣ Tép > ♠ Bích)"
@@ -11,6 +12,13 @@ public enum SuitRulePreset: String, CaseIterable, Identifiable, Codable {
     
     public func suitValue(_ suit: Suit) -> Int {
         switch self {
+        case .diamondFirst:
+            switch suit {
+            case .spades: return 1   // Bích
+            case .clubs: return 2    // Chuồn / Tép
+            case .hearts: return 3   // Cơ
+            case .diamonds: return 4 // Rô
+            }
         case .north, .southB:
             switch suit {
             case .spades: return 1   // Bích
