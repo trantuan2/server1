@@ -1101,6 +1101,18 @@ public class GameViewModel: ObservableObject {
             calculateXiDach()
         case .texasHoldem:
             calculateTexasHoldem()
+        case .xiTo2:
+            // Xì Tố 2 lá: Chỉ hiện 2 lá và các tụ, không tính kết quả hay hiện bảng kết quả
+            hasCalculatedResults = false
+            isShowResultModal = false
+            showdownSummary = ""
+            for i in 0..<players.count {
+                players[i].rankOrder = nil
+                players[i].score = 0
+                players[i].resultTitle = ""
+                players[i].resultDetail = ""
+            }
+            return
         }
         
         hasCalculatedResults = true

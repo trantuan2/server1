@@ -84,6 +84,14 @@ const GAME_CONFIGS = {
     maxPlayers: 10,
     desc: "2 lá/người: Xì Bàng (A-A: 5021) > Xì Dách (A + 10/J/Q/K: 4000) > Ngũ Linh (5 lá ≤ 21đ) > Đủ tuổi (16-21đ) > Non (<16đ) > Quắc (>21đ)."
   },
+  xiTo2: {
+    name: "Xì Tố (2 Lá)",
+    cardsPerPlayer: 2,
+    community: 0,
+    minPlayers: 2,
+    maxPlayers: 10,
+    desc: "2 lá/người (2-10 người). Hỗ trợ giọng nói tiếng Việt đầy đủ. Không tính kết quả hay hiện bảng điểm, chỉ hiển thị bài trên bàn."
+  },
   texasHoldem: {
     name: "Poker (Texas Hold'em 2+5)",
     cardsPerPlayer: 2,
@@ -3424,6 +3432,10 @@ class AppController {
         break;
       case 'xiDach2':
         this.calcXiDach();
+        break;
+      case 'xiTo2':
+        this.results = [];
+        this.showModal = false;
         break;
       case 'texasHoldem':
         this.calcHoldem();
