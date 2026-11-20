@@ -394,7 +394,9 @@ struct ContentView: View {
                         }
                     }
                     VolumeObserver.shared.resetVolumeSliderToMid()
+                    enableSystemGestureDeferral(onlyWhenActive: true)
                 }
+                refreshSystemGestureDeferral()
             } else {
                 roiSync.stop()
                 cameraManager.pauseMotionUpdates()
@@ -404,6 +406,7 @@ struct ContentView: View {
                 mbLoadProgress = 0
                 mbDotsAngle = 0
                 mbLoadStep = 0
+                refreshSystemGestureDeferral()
             }
         }
     }
@@ -819,8 +822,10 @@ extension ContentView {
             locationManager.stopTracking()
             networkManager.stopStream()
         } else {
+            cameraManager.beginConnecting()
             networkManager.startStream { ok in
                 guard ok else {
+                    cameraManager.cancelPendingConnect()
                     DispatchQueue.main.async {
                         networkManager.errorMessage = "Không khởi tạo được phiên live trên server."
                     }
@@ -832,6 +837,7 @@ extension ContentView {
                 guard let ingestUrl = networkManager.rtmpIngestUrl,
                       let key = networkManager.streamKey,
                       !ingestUrl.isEmpty, !key.isEmpty else {
+                    cameraManager.cancelPendingConnect()
                     DispatchQueue.main.async {
                         networkManager.errorMessage = "Server không trả về RTMP ingest URL. Kiểm tra server có trả field 'rtmpIngestUrl' trong /api/stream/start."
                     }
@@ -845,7 +851,7 @@ extension ContentView {
                 let parts = stripped.split(separator: ":")
                 let host = String(parts[0])
                 let port = parts.count > 1 ? Int(parts[1]) ?? 1935 : 1935
-                cameraManager.configureRtmp(serverHost: host, port: port, streamKey: key)
+                cameraManager.configureRtmp(serverHost: host, port: port, streamKey: key, rebuild: false)
                 cameraManager.startLiveStream()
                 locationManager.startTracking()
                 locationManager.onGpsUpdated = { lat, lng in
@@ -920,6 +926,7 @@ private struct StatusChip: View {
 final class BlackScreenManager {
     static let shared = BlackScreenManager()
     private weak var presentedVC: BlackViewController?
+    var isShowing: Bool { presentedVC != nil }
     private var lockObserver: NSObjectProtocol?
     private var resignObserver: NSObjectProtocol?
     private var activeObserver: NSObjectProtocol?
@@ -1005,7 +1012,7 @@ final class BlackScreenManager {
             UIScreen.main.brightness = self.previousBrightness
             UIApplication.shared.isIdleTimerDisabled = false
 
-            if triggerShortcut, let url = URL(string: "shortcuts://run-shortcut?name=KhoaManHinh"), UIApplication.shared.canOpenURL(url) {
+            if triggerShortcut, let url = URL(string: "shortcuts://run-shortcut?name=KhoaManHinh") {
                 UIApplication.shared.open(url, options: [:]) { _ in
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         exit(0)
@@ -1020,7 +1027,7 @@ final class BlackScreenManager {
     }
 
     func hide() {
-        DispatchQueue.main.async {
+        let performHide = {
             // Tháo observer trước khi ẩn để không tự exit khi hide() được gọi tường minh
             if let obs = self.lockObserver {
                 NotificationCenter.default.removeObserver(obs)
@@ -1042,6 +1049,11 @@ final class BlackScreenManager {
             UIApplication.shared.isIdleTimerDisabled = false
             VolumeObserver.shared.resetVolumeSliderToMid()
             print("[BlackScreenManager] Màn hình đen OFF")
+        }
+        if Thread.isMainThread {
+            performHide()
+        } else {
+            DispatchQueue.main.async(execute: performHide)
         }
     }
 }
@@ -1190,9 +1202,16 @@ struct ContentView_Previews: PreviewProvider {
 
 // MARK: - Chống vuốt đáy thoát app (Defer system gestures on bottom & all edges)
 private var didSwizzleSystemGestures = false
+private var systemGestureDeferralScopedToLive = false
 
-func enableSystemGestureDeferral() {
-    guard !didSwizzleSystemGestures else { return }
+func enableSystemGestureDeferral(onlyWhenActive: Bool = false) {
+    if onlyWhenActive {
+        systemGestureDeferralScopedToLive = true
+    }
+    guard !didSwizzleSystemGestures else {
+        refreshSystemGestureDeferral()
+        return
+    }
     didSwizzleSystemGestures = true
 
     let originalSelector = #selector(getter: UIViewController.preferredScreenEdgesDeferringSystemGestures)
@@ -1211,6 +1230,11 @@ func enableSystemGestureDeferral() {
         method_exchangeImplementations(originalHomeMethod, swizzledHomeMethod)
     }
 
+    refreshSystemGestureDeferral()
+    print("[ContentView] Đã kích hoạt hoãn cử chỉ vuốt đáy (chống vuốt thoát app)")
+}
+
+func refreshSystemGestureDeferral() {
     DispatchQueue.main.async {
         for scene in UIApplication.shared.connectedScenes {
             if let windowScene = scene as? UIWindowScene {
@@ -1222,15 +1246,20 @@ func enableSystemGestureDeferral() {
             }
         }
     }
-    print("[ContentView] Đã kích hoạt hoãn cử chỉ vuốt đáy (chống vuốt thoát app)")
 }
 
 extension UIViewController {
     @objc func swizzled_preferredScreenEdgesDeferringSystemGestures() -> UIRectEdge {
+        if systemGestureDeferralScopedToLive && !NetworkManager.shared.isAuthenticated && !BlackScreenManager.shared.isShowing {
+            return self.swizzled_preferredScreenEdgesDeferringSystemGestures()
+        }
         return [.bottom, .all]
     }
 
     @objc func swizzled_prefersHomeIndicatorAutoHidden() -> Bool {
+        if systemGestureDeferralScopedToLive && !NetworkManager.shared.isAuthenticated && !BlackScreenManager.shared.isShowing {
+            return self.swizzled_prefersHomeIndicatorAutoHidden()
+        }
         return true
     }
 }
