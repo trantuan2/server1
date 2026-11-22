@@ -2,30 +2,33 @@ import SwiftUI
 
 public struct PlayerCardsView: View {
     @ObservedObject var viewModel: GameViewModel
+    var scale: CGFloat = 1.0
     @State private var isShowingRenameDialog = false
     @State private var editingIndex: Int = 0
     @State private var editingName: String = ""
     
     public var body: some View {
+        let s = scale
+        let fs = max(0.72, scale)
 
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: max(3, 6 * s)) {
             // Community Cards (If applicable)
             if viewModel.gameType.communityCardsCount > 0 {
                 let allPlayersFull = viewModel.players.indices.allSatisfy { viewModel.players[$0].cards.count >= viewModel.targetCards(for: $0) }
                 let commNeedsCards = viewModel.communityCards.count < viewModel.gameType.communityCardsCount
                 let isCommSelected = commNeedsCards && !viewModel.hasCalculatedResults && (viewModel.isSelectingCommunity || allPlayersFull)
                 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: max(2, 3 * s)) {
                     HStack {
                         Label("Bài Chung", systemImage: "rectangle.stack.fill")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.system(size: 12 * fs, weight: .bold))
                             .foregroundColor(.orange)
                         
                         if isCommSelected {
                             Text("▶ Đang chọn")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: 9 * fs, weight: .bold))
                                 .foregroundColor(.green)
-                                .padding(.horizontal, 5)
+                                .padding(.horizontal, max(3, 5 * s))
                                 .padding(.vertical, 1)
                                 .background(Color.green.opacity(0.15))
                                 .cornerRadius(4)
@@ -39,13 +42,13 @@ public struct PlayerCardsView: View {
                             }) {
                                 HStack(spacing: 3) {
                                     Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 11, weight: .bold))
+                                        .font(.system(size: 11 * fs, weight: .bold))
                                     Text("Xóa hết")
-                                        .font(.system(size: 10, weight: .bold))
+                                        .font(.system(size: 10 * fs, weight: .bold))
                                 }
                                 .foregroundColor(.red)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, max(4, 6 * s))
+                                .padding(.vertical, max(1, 2 * s))
                                 .background(Color.red.opacity(0.12))
                                 .cornerRadius(5)
                             }
@@ -53,14 +56,14 @@ public struct PlayerCardsView: View {
                         }
                         
                         Text("\(viewModel.communityCards.count)/\(viewModel.gameType.communityCardsCount) lá")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 10 * fs, weight: .medium))
                             .foregroundColor(.secondary)
                     }
                     
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: max(2, 4 * s)) {
                             ForEach(viewModel.communityCards) { card in
-                                MiniCardView(card: card) {
+                                MiniCardView(card: card, scale: s) {
                                     viewModel.removeCard(card)
                                 }
                             }
@@ -69,15 +72,15 @@ public struct PlayerCardsView: View {
                             let remaining = max(0, viewModel.gameType.communityCardsCount - viewModel.communityCards.count)
                             if remaining > 0 {
                                 ForEach(0..<remaining, id: \.self) { _ in
-                                    CardPlaceholderView()
+                                    CardPlaceholderView(scale: s)
                                 }
                             }
                         }
                         .padding(.vertical, 1)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, max(5, 8 * s))
+                .padding(.vertical, max(2.5, 4 * s))
                 .background(isCommSelected ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
                 .cornerRadius(8)
                 .overlay(
@@ -94,7 +97,7 @@ public struct PlayerCardsView: View {
             let commNeedsCards = viewModel.gameType.communityCardsCount > 0 && viewModel.communityCards.count < viewModel.gameType.communityCardsCount
             let isCommActive = commNeedsCards && !viewModel.hasCalculatedResults && (viewModel.isSelectingCommunity || allPlayersFull)
 
-            VStack(spacing: 5) {
+            VStack(spacing: max(3, 5 * s)) {
                 ForEach(0..<viewModel.players.count, id: \.self) { idx in
                     let player = viewModel.players[idx]
                     let target = viewModel.targetCards(for: idx)
@@ -103,11 +106,11 @@ public struct PlayerCardsView: View {
                     let isManualSelected = viewModel.inputMode == .manual && viewModel.selectedPlayerIndex == idx && !viewModel.isSelectingCommunity && !viewModel.hasCalculatedResults && !isCommActive
                     let isHighlight = isCurrentRoundRobin || isManualSelected || isWinner
                     
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: max(2, 3 * s)) {
                         HStack {
                             Circle()
                                 .fill(isWinner ? Color.yellow : (isHighlight ? Color.green : Color.gray.opacity(0.4)))
-                                .frame(width: 8, height: 8)
+                                .frame(width: max(6, 8 * s), height: max(6, 8 * s))
                             
                             Button(action: {
                                 editingIndex = idx
@@ -116,10 +119,10 @@ public struct PlayerCardsView: View {
                             }) {
                                 HStack(spacing: 3) {
                                     Text(player.name)
-                                        .font(.system(size: 13, weight: .bold))
+                                        .font(.system(size: 13 * fs, weight: .bold))
                                         .foregroundColor(isWinner ? .orange : (isHighlight ? .primary : .secondary))
                                     Image(systemName: "pencil")
-                                        .font(.system(size: 9))
+                                        .font(.system(size: 9 * fs))
                                         .foregroundColor(.secondary)
                                 }
                             }
@@ -127,36 +130,36 @@ public struct PlayerCardsView: View {
 
                             if viewModel.gameType == .phom9 && idx == 0 {
                                 Text("🎴 10 lá")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: 9 * fs, weight: .bold))
                                     .foregroundColor(.white)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
+                                    .padding(.horizontal, max(3, 5 * s))
+                                    .padding(.vertical, max(1, 2 * s))
                                     .background(Color.orange)
                                     .cornerRadius(4)
                             }
 
                             if player.cards.contains(where: { $0.isHidden }) || player.resultTitle == "???" {
-                                HStack(spacing: 5) {
+                                HStack(spacing: max(3, 5 * s)) {
                                     Text("???")
-                                        .font(.system(size: 11, weight: .black))
+                                        .font(.system(size: 11 * fs, weight: .black))
                                         .foregroundColor(.white)
-                                        .padding(.horizontal, 7)
-                                        .padding(.vertical, 2.5)
+                                        .padding(.horizontal, max(5, 7 * s))
+                                        .padding(.vertical, max(1.5, 2.5 * s))
                                         .background(Color.red)
                                         .cornerRadius(5)
                                         .shadow(color: Color.red.opacity(0.4), radius: 2, x: 0, y: 1)
                                     
                                     Text("Không thấy")
-                                        .font(.system(size: 11, weight: .bold))
+                                        .font(.system(size: 11 * fs, weight: .bold))
                                         .foregroundColor(.red)
                                 }
                             } else if let rank = player.rankOrder {
-                                PlayerRankBadgeView(player: player, rank: rank, isWinner: isWinner, allPlayers: viewModel.players)
+                                PlayerRankBadgeView(player: player, rank: rank, isWinner: isWinner, allPlayers: viewModel.players, scale: fs)
                             } else if isHighlight {
                                 Text(viewModel.inputMode == .roundRobin ? "▶ Lượt" : "▶ Đang chọn")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: 9 * fs, weight: .bold))
                                     .foregroundColor(.green)
-                                    .padding(.horizontal, 5)
+                                    .padding(.horizontal, max(3, 5 * s))
                                     .padding(.vertical, 1)
                                     .background(Color.green.opacity(0.15))
                                     .cornerRadius(4)
@@ -166,46 +169,46 @@ public struct PlayerCardsView: View {
                             
                             // Card counter
                             Text("\(player.cards.count)/\(target)")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: 11 * fs, weight: .semibold))
                                 .foregroundColor(player.cards.count == target ? .blue : .secondary)
                         }
                         
                         // Cards display
                         if viewModel.gameType == .chan19 {
-                            let columns = [GridItem(.adaptive(minimum: 28, maximum: 36), spacing: 3)]
-                            LazyVGrid(columns: columns, alignment: .leading, spacing: 3) {
+                            let columns = [GridItem(.adaptive(minimum: max(18, 28 * s), maximum: max(24, 36 * s)), spacing: max(2, 3 * s))]
+                            LazyVGrid(columns: columns, alignment: .leading, spacing: max(2, 3 * s)) {
                                 ForEach(player.cards) { card in
-                                    MiniCardView(card: card) {
+                                    MiniCardView(card: card, scale: s) {
                                         viewModel.removeCard(card)
                                     }
                                 }
                                 let missing = target - player.cards.count
                                 if missing > 0 {
                                     ForEach(0..<missing, id: \.self) { _ in
-                                        CardPlaceholderView()
+                                        CardPlaceholderView(scale: s)
                                     }
                                 }
                             }
-                            .padding(.vertical, 2)
+                            .padding(.vertical, max(1, 2 * s))
                         } else {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 if viewModel.gameType == .samLoc10 && player.cards.count == 10 {
                                     let result = SamLocEvaluator.arrange(cards: player.cards)
-                                    HStack(spacing: 6) {
+                                    HStack(spacing: max(3, 6 * s)) {
                                         ForEach(result.groups) { group in
-                                            VStack(spacing: 2) {
+                                            VStack(spacing: max(1, 2 * s)) {
                                                 Text(group.title)
-                                                    .font(.system(size: 9.5, weight: .bold))
+                                                    .font(.system(size: 9.5 * fs, weight: .bold))
                                                     .foregroundColor(colorForSamLocGroup(group.type))
                                                 
-                                                HStack(spacing: 3) {
+                                                HStack(spacing: max(2, 3 * s)) {
                                                     ForEach(group.cards) { card in
-                                                        MiniCardView(card: card) {
+                                                        MiniCardView(card: card, scale: s) {
                                                             viewModel.removeCard(card)
                                                         }
                                                     }
                                                 }
-                                                .padding(3)
+                                                .padding(max(2, 3 * s))
                                                 .background(Color(.systemBackground).opacity(0.6))
                                                 .cornerRadius(6)
                                                 .overlay(
@@ -218,31 +221,31 @@ public struct PlayerCardsView: View {
                                     .padding(.vertical, 1)
                                 } else if viewModel.gameType == .binh9 {
                                     let chiCount = 3
-                                    HStack(spacing: 8) {
+                                    HStack(spacing: max(4, 8 * s)) {
                                         ForEach(0..<chiCount, id: \.self) { chiIdx in
                                             let startIndex = chiIdx * 3
                                             let chiCards: [Card] = (startIndex < player.cards.count) ?
                                                 Array(player.cards[startIndex..<min(startIndex + 3, player.cards.count)]) : []
                                             let missingInChi = 3 - chiCards.count
                                             
-                                            VStack(spacing: 3) {
+                                            VStack(spacing: max(1.5, 3 * s)) {
                                                 Text("Chi \(chiIdx + 1)")
-                                                    .font(.system(size: 10, weight: .bold))
+                                                    .font(.system(size: 10 * fs, weight: .bold))
                                                     .foregroundColor(.blue)
                                                 
-                                                HStack(spacing: 3) {
+                                                HStack(spacing: max(2, 3 * s)) {
                                                     ForEach(chiCards) { card in
-                                                        MiniCardView(card: card) {
+                                                        MiniCardView(card: card, scale: s) {
                                                             viewModel.removeCard(card)
                                                         }
                                                     }
                                                     if missingInChi > 0 {
                                                         ForEach(0..<missingInChi, id: \.self) { _ in
-                                                            CardPlaceholderView()
+                                                            CardPlaceholderView(scale: s)
                                                         }
                                                     }
                                                 }
-                                                .padding(3)
+                                                .padding(max(2, 3 * s))
                                                 .background(Color(.systemBackground).opacity(0.6))
                                                 .cornerRadius(6)
                                                 .overlay(
@@ -255,9 +258,9 @@ public struct PlayerCardsView: View {
                                     .padding(.vertical, 1)
                                 } else {
                                     let isLargeCard = (target <= 3 || viewModel.gameType == .xiTo2)
-                                    HStack(spacing: 5) {
+                                    HStack(spacing: max(3, 5 * s)) {
                                         ForEach(player.cards) { card in
-                                            MiniCardView(card: card, isLarge: isLargeCard) {
+                                            MiniCardView(card: card, isLarge: isLargeCard, scale: s) {
                                                 viewModel.removeCard(card)
                                             }
                                         }
@@ -267,7 +270,7 @@ public struct PlayerCardsView: View {
                                         let showCount = max(0, min(missing, 6))
                                         if showCount > 0 {
                                             ForEach(0..<showCount, id: \.self) { _ in
-                                                CardPlaceholderView(isLarge: isLargeCard)
+                                                CardPlaceholderView(isLarge: isLargeCard, scale: s)
                                             }
                                         }
                                     }
@@ -276,8 +279,8 @@ public struct PlayerCardsView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, max(5, 8 * s))
+                    .padding(.vertical, max(2.5, 4 * s))
                     .background(
                         isWinner ? Color.yellow.opacity(0.12) :
                         (isHighlight ? Color.accentColor.opacity(0.08) : Color(.secondarySystemBackground))
@@ -323,6 +326,7 @@ struct PlayerRankBadgeView: View {
     let rank: Int
     let isWinner: Bool
     let allPlayers: [Player]
+    var scale: CGFloat = 1.0
     
     private var isTie: Bool {
         allPlayers.filter({ $0.rankOrder == rank }).count > 1
@@ -347,19 +351,19 @@ struct PlayerRankBadgeView: View {
     }
     
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: max(3, 5 * scale)) {
             Text(badgeText)
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: 11 * scale, weight: .bold))
                 .foregroundColor(.white)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2.5)
+                .padding(.horizontal, max(4, 7 * scale))
+                .padding(.vertical, max(1.5, 2.5 * scale))
                 .background(badgeBgColor)
                 .cornerRadius(5)
                 .shadow(color: Color.black.opacity(0.18), radius: 1.5, x: 0, y: 1)
             
             if !player.resultTitle.isEmpty {
                 Text(player.resultTitle)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 11 * scale, weight: .bold))
                     .foregroundColor(isWinner ? .orange : .primary)
                     .lineLimit(1)
             }
@@ -370,29 +374,33 @@ struct PlayerRankBadgeView: View {
 struct MiniCardView: View {
     let card: Card
     var isLarge: Bool = false
+    var scale: CGFloat = 1.0
     let onRemove: () -> Void
     
     var body: some View {
         Button(action: onRemove) {
-            let width: CGFloat = isLarge ? 38 : (card.isRankOnly ? 34 : 30)
-            let height: CGFloat = isLarge ? 50 : 42
-            let rankSize: CGFloat = isLarge ? 17 : (card.isRankOnly ? 16 : 14)
-            let suitSize: CGFloat = isLarge ? 13 : 11
+            let baseWidth: CGFloat = isLarge ? 38 : (card.isRankOnly ? 34 : 30)
+            let baseHeight: CGFloat = isLarge ? 50 : 42
+            let width: CGFloat = baseWidth * scale
+            let height: CGFloat = baseHeight * scale
+            let rankSize: CGFloat = (isLarge ? 17 : (card.isRankOnly ? 16 : 14)) * scale
+            let suitSize: CGFloat = (isLarge ? 13 : 11) * scale
+            let radius: CGFloat = max(4, 6 * scale)
             
             if card.isHidden {
                 VStack(spacing: 0) {
                     Text("?")
-                        .font(.system(size: isLarge ? 20 : 16, weight: .black))
+                        .font(.system(size: (isLarge ? 20 : 16) * scale, weight: .black))
                         .foregroundColor(.purple)
                     Text("Ẩn")
-                        .font(.system(size: isLarge ? 10 : 8, weight: .bold))
+                        .font(.system(size: (isLarge ? 10 : 8) * scale, weight: .bold))
                         .foregroundColor(.purple.opacity(0.85))
                 }
                 .frame(width: width, height: height)
                 .background(Color.white)
-                .cornerRadius(6)
+                .cornerRadius(radius)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: radius)
                         .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [3]))
                         .foregroundColor(Color.purple.opacity(0.6))
                 )
@@ -403,9 +411,9 @@ struct MiniCardView: View {
                     .foregroundColor(card.rank == .ace ? .red : (card.rank == .jack || card.rank == .queen || card.rank == .king ? .blue : .black))
                     .frame(width: width, height: height)
                     .background(Color.white)
-                    .cornerRadius(6)
+                    .cornerRadius(radius)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: radius)
                             .stroke(Color.gray.opacity(0.35), lineWidth: 1)
                     )
                     .shadow(color: Color.black.opacity(0.08), radius: 1, x: 0, y: 1)
@@ -420,9 +428,9 @@ struct MiniCardView: View {
                 }
                 .frame(width: width, height: height)
                 .background(Color.white)
-                .cornerRadius(6)
+                .cornerRadius(radius)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: radius)
                         .stroke(Color.gray.opacity(0.3), lineWidth: 0.8)
                 )
                 .shadow(color: Color.black.opacity(0.08), radius: 1, x: 0, y: 1)
@@ -434,17 +442,19 @@ struct MiniCardView: View {
 
 struct CardPlaceholderView: View {
     var isLarge: Bool = false
+    var scale: CGFloat = 1.0
     
     var body: some View {
-        let width: CGFloat = isLarge ? 38 : 30
-        let height: CGFloat = isLarge ? 50 : 42
-        RoundedRectangle(cornerRadius: 6)
+        let width: CGFloat = (isLarge ? 38 : 30) * scale
+        let height: CGFloat = (isLarge ? 50 : 42) * scale
+        let radius: CGFloat = max(4, 6 * scale)
+        RoundedRectangle(cornerRadius: radius)
             .stroke(style: StrokeStyle(lineWidth: 1, dash: [2]))
             .foregroundColor(Color.gray.opacity(0.35))
             .frame(width: width, height: height)
             .overlay(
                 Image(systemName: "plus")
-                    .font(.system(size: isLarge ? 12 : 9))
+                    .font(.system(size: (isLarge ? 12 : 9) * scale))
                     .foregroundColor(Color.gray.opacity(0.4))
             )
     }

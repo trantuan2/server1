@@ -4,6 +4,7 @@ public struct ContentView: View {
     @StateObject private var viewModel = GameViewModel()
     @ObservedObject private var licenseService = LicenseService.shared
     @State private var isShowingSettings = false
+    @AppStorage("server1_player_scale") private var playerScale: Double = 1.0
     
     public init() {}
     
@@ -42,16 +43,26 @@ public struct ContentView: View {
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundColor(.secondary)
                             }
-                            .padding(.horizontal, 10)
+                            .padding(.horizontal, 8)
                             .padding(.vertical, 7)
                             .background(Color(.secondarySystemBackground))
                             .cornerRadius(8)
                         }
                         
-                        Spacer(minLength: 4)
+                        // Thanh kéo to/nhỏ các Tụ & lá bài ở giữa
+                        HStack(spacing: 4) {
+                            Slider(value: $playerScale, in: 0.55...1.25, step: 0.05)
+                                .tint(.blue)
+                                .frame(maxWidth: .infinity)
+                            Text("\(Int(round(playerScale * 100)))%")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundColor(.blue)
+                                .frame(width: 32, alignment: .trailing)
+                        }
+                        .padding(.horizontal, 2)
                         
                         // Custom Responsive Stepper
-                        HStack(spacing: 6) {
+                        HStack(spacing: 4) {
                             Button(action: {
                                 if viewModel.numberOfPlayers > viewModel.gameType.minPlayers {
                                     viewModel.numberOfPlayers -= 1
@@ -60,16 +71,16 @@ public struct ContentView: View {
                                 Image(systemName: "minus")
                                     .font(.system(size: 11, weight: .bold))
                                     .foregroundColor(viewModel.numberOfPlayers > viewModel.gameType.minPlayers ? .blue : .gray)
-                                    .frame(width: 28, height: 28)
+                                    .frame(width: 26, height: 26)
                                     .background(Color(.systemBackground))
                                     .cornerRadius(6)
                             }
                             .disabled(viewModel.numberOfPlayers <= viewModel.gameType.minPlayers)
                             
                             Text("\(viewModel.numberOfPlayers) Tụ")
-                                .font(.system(size: 13, weight: .bold))
+                                .font(.system(size: 12, weight: .bold))
                                 .foregroundColor(.blue)
-                                .frame(minWidth: 54)
+                                .frame(minWidth: 42)
                             
                             Button(action: {
                                 if viewModel.numberOfPlayers < viewModel.gameType.maxPlayers {
@@ -79,7 +90,7 @@ public struct ContentView: View {
                                 Image(systemName: "plus")
                                     .font(.system(size: 11, weight: .bold))
                                     .foregroundColor(viewModel.numberOfPlayers < viewModel.gameType.maxPlayers ? .blue : .gray)
-                                    .frame(width: 28, height: 28)
+                                    .frame(width: 26, height: 26)
                                     .background(Color(.systemBackground))
                                     .cornerRadius(6)
                             }
@@ -105,9 +116,9 @@ public struct ContentView: View {
                 
                 // 2. UPPER: Player Mats Area (Nhóm ở trên)
                 ScrollView {
-                    PlayerCardsView(viewModel: viewModel)
+                    PlayerCardsView(viewModel: viewModel, scale: CGFloat(playerScale))
                         .padding(.horizontal)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, max(4, 8 * CGFloat(playerScale)))
                 }
                 
                 Divider()

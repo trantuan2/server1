@@ -3,52 +3,78 @@ import SwiftUI
 public struct ResultModalView: View {
     @ObservedObject var viewModel: GameViewModel
     @Environment(\.presentationMode) var presentationMode
+    @AppStorage("server1_result_scale") private var resultScale: Double = 1.0
     
     public var body: some View {
+        let s = CGFloat(resultScale)
+        let fs = max(0.72, s)
+        
         NavigationView {
             GeometryReader { geo in
                 ZStack {
-                    ScrollView {
-                        VStack(spacing: 16) {
-                            // Winner Banner
-                            VStack(spacing: 8) {
-                                Text(viewModel.showdownSummary)
-                                    .font(.headline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal)
-                                
-                                Text(viewModel.gameType.rawValue)
-                                    .font(.subheadline)
-                                    .foregroundColor(.white.opacity(0.85))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 18)
-                            .background(
-                                LinearGradient(
-                                    colors: [Color.blue, Color.purple],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .cornerRadius(14)
-                            .padding(.horizontal)
-                            
-                            // Rankings List
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Bảng Xếp Hạng & Đánh Giá Bài")
-                                    .font(.headline)
-                                    .padding(.horizontal)
-                                
-                                ForEach(sortedPlayers) { player in
-                                    PlayerResultRowView(player: player, allPlayers: viewModel.players)
-                                }
-                            }
-                            
-                            Spacer().frame(height: 70) // Khoảng trống cuộn tránh che khuất bởi nút nổi
+                    VStack(spacing: 0) {
+                        // Thanh kéo to/nhỏ bảng kết quả (ghim gọn trên đầu)
+                        HStack(spacing: 8) {
+                            Image(systemName: "textformat.size.smaller")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.secondary)
+                            Slider(value: $resultScale, in: 0.55...1.30, step: 0.05)
+                                .tint(.blue)
+                            Image(systemName: "textformat.size.larger")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.blue)
+                            Text("\(Int(round(resultScale * 100)))%")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(.blue)
+                                .frame(width: 38, alignment: .trailing)
                         }
-                        .padding(.vertical)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(Color(.systemBackground))
+                        
+                        Divider()
+                        
+                        ScrollView {
+                            VStack(spacing: max(6, 14 * s)) {
+                                // Winner Banner
+                                VStack(spacing: max(3, 8 * s)) {
+                                    Text(viewModel.showdownSummary)
+                                        .font(.system(size: 17 * fs, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal)
+                                    
+                                    Text(viewModel.gameType.rawValue)
+                                        .font(.system(size: 14 * fs))
+                                        .foregroundColor(.white.opacity(0.85))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, max(8, 16 * s))
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color.blue, Color.purple],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .cornerRadius(max(8, 14 * s))
+                                .padding(.horizontal)
+                                
+                                // Rankings List
+                                VStack(alignment: .leading, spacing: max(4, 10 * s)) {
+                                    Text("Bảng Xếp Hạng & Đánh Giá Bài")
+                                        .font(.system(size: 16 * fs, weight: .bold))
+                                        .padding(.horizontal)
+                                    
+                                    ForEach(sortedPlayers) { player in
+                                        PlayerResultRowView(player: player, allPlayers: viewModel.players, scale: s)
+                                    }
+                                }
+                                
+                                Spacer().frame(height: 70) // Khoảng trống cuộn tránh che khuất bởi nút nổi
+                            }
+                            .padding(.vertical, max(6, 12 * s))
+                        }
                     }
                     
                     // Nút Đóng Thứ 2 (Floating Close Button)
@@ -133,6 +159,7 @@ public struct ResultModalView: View {
 struct PlayerResultRowView: View {
     let player: Player
     let allPlayers: [Player]
+    var scale: CGFloat = 1.0
     
     private var isUnknown: Bool {
         player.rankOrder == nil || player.resultTitle == "???" || player.cards.contains(where: { $0.isHidden })
@@ -153,63 +180,62 @@ struct PlayerResultRowView: View {
     }
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        let s = scale
+        let fs = max(0.72, scale)
+        let badgeSize = max(24, 36 * s)
+        
+        HStack(alignment: .top, spacing: max(6, 12 * s)) {
             // Medal / Rank badge
             if isUnknown {
                 ZStack {
                     Circle()
                         .fill(Color.red)
-                        .frame(width: 36, height: 36)
+                        .frame(width: badgeSize, height: badgeSize)
                     Text("?")
-                        .font(.headline)
-                        .fontWeight(.black)
+                        .font(.system(size: 16 * fs, weight: .black))
                         .foregroundColor(.white)
                 }
             } else {
                 ZStack {
                     Circle()
                         .fill(rankBadgeColor(player.rankOrder ?? 0))
-                        .frame(width: 36, height: 36)
+                        .frame(width: badgeSize, height: badgeSize)
                     
                     Text("\(player.rankOrder ?? 0)")
-                        .font(.headline)
-                        .fontWeight(.bold)
+                        .font(.system(size: 16 * fs, weight: .bold))
                         .foregroundColor(.white)
                 }
             }
             
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
+            VStack(alignment: .leading, spacing: max(2, 4 * s)) {
+                HStack(spacing: max(4, 6 * s)) {
                     Text(player.name)
-                        .font(.headline)
+                        .font(.system(size: 16 * fs, weight: .semibold))
                     
                     if isUnknown {
                         Text("LOẠI KHỎI BXH")
-                            .font(.caption2)
-                            .fontWeight(.black)
+                            .font(.system(size: 10 * fs, weight: .black))
                             .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, max(4, 6 * s))
+                            .padding(.vertical, max(1, 2 * s))
                             .background(Color.red)
                             .cornerRadius(4)
                     } else if isTie {
                         Text("ĐỒNG HẠNG")
-                            .font(.caption2)
-                            .fontWeight(.bold)
+                            .font(.system(size: 10 * fs, weight: .bold))
                             .foregroundColor(.orange)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, max(4, 6 * s))
+                            .padding(.vertical, max(1, 2 * s))
                             .background(Color.orange.opacity(0.15))
                             .cornerRadius(4)
                     }
                     
                     if player.isLung {
                         Text("LỦNG")
-                            .font(.caption2)
-                            .fontWeight(.black)
+                            .font(.system(size: 10 * fs, weight: .black))
                             .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, max(4, 6 * s))
+                            .padding(.vertical, max(1, 2 * s))
                             .background(Color.red)
                             .cornerRadius(4)
                     }
@@ -218,30 +244,29 @@ struct PlayerResultRowView: View {
                 }
                 
                 Text(player.resultTitle)
-                    .font(.subheadline)
-                    .fontWeight(.bold)
+                    .font(.system(size: 14 * fs, weight: .bold))
                     .foregroundColor(isUnknown ? .red : .blue)
                 
                 Text(player.resultDetail)
-                    .font(.caption)
+                    .font(.system(size: 12 * fs))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 
                 if !player.cards.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
+                        HStack(spacing: max(2, 4 * s)) {
                             ForEach(player.cards) { card in
-                                MiniCardView(card: card) { }
+                                MiniCardView(card: card, scale: s) { }
                             }
                         }
                     }
-                    .padding(.top, 2)
+                    .padding(.top, max(1, 2 * s))
                 }
             }
         }
-        .padding(12)
+        .padding(max(6, 12 * s))
         .background(Color(.secondarySystemBackground))
-        .cornerRadius(12)
+        .cornerRadius(max(8, 12 * s))
         .padding(.horizontal)
     }
 }
