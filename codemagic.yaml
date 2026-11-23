@@ -21,6 +21,7 @@ workflows:
     scripts:
       - name: Initialize Xcode Project
         script: |
+          export PATH="/opt/homebrew/bin:$PATH"
           echo "Initializing project in $(pwd)..."
           if ! command -v xcodegen &> /dev/null; then
             echo "Installing xcodegen via Homebrew..."
@@ -49,11 +50,14 @@ workflows:
         script: |
           set -e
           echo "Packaging IPA file..."
+          rm -rf "$PWD/build/output" "$PWD/build/Payload"
           mkdir -p "$PWD/build/output"
           mkdir -p "$PWD/build/Payload"
-          cp -r "$PWD/build/CardGameApp.xcarchive/Products/Applications/"*.app "$PWD/build/Payload/"
+          cp -R "$PWD/build/CardGameApp.xcarchive/Products/Applications/"*.app "$PWD/build/Payload/"
+          find "$PWD/build/Payload" -name "_CodeSignature" -type d -exec rm -rf {} + || true
+          find "$PWD/build/Payload" -name "embedded.mobileprovision" -type f -delete || true
           cd "$PWD/build"
-          zip -qr "GiaLapSoBai.ipa" Payload
+          zip -qr -y "GiaLapSoBai.ipa" Payload
           cp "GiaLapSoBai.ipa" "CardGameApp.ipa"
           mv "GiaLapSoBai.ipa" output/
           mv "CardGameApp.ipa" output/
@@ -70,7 +74,7 @@ workflows:
       events:
         - push
       branch_patterns:
-        - pattern: '*'
+        - pattern: 'release-signed'
           include: true
           source: true
       cancel_previous_builds: true
@@ -86,6 +90,7 @@ workflows:
     scripts:
       - name: Set up code signing settings on Xcode project
         script: |
+          export PATH="/opt/homebrew/bin:$PATH"
           if ! command -v xcodegen &> /dev/null; then
             echo "Installing xcodegen via Homebrew..."
             brew install xcodegen || true
