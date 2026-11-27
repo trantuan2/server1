@@ -1266,7 +1266,10 @@ public class GameViewModel: ObservableObject {
     }
     
     private func calculateLieng() {
-        let rule = isRankOnlyActive ? .international : suitPreset
+        let hasAnySuitedCard = players.contains { p in
+            p.cards.contains { !$0.isRankOnly && !$0.isHidden }
+        }
+        let rule: SuitRulePreset = (isRankOnlyActive && !hasAnySuitedCard) ? .international : suitPreset
         var scores = [(index: Int, score: LiengHandScore)]()
         for (i, p) in players.enumerated() {
             if p.cards.contains(where: { $0.isHidden }) {

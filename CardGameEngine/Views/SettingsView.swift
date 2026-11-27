@@ -278,14 +278,6 @@ public struct SettingsView: View {
                     .padding(.vertical, 4)
                 }
                 
-                Section(header: Text("Tùy Chọn Bàn Phím Số A➔K (Tất Cả Trò Chơi)")) {
-                    Toggle("Chế độ không so chất (Bàn phím A➔K)", isOn: $viewModel.isRankOnlyMode)
-                    
-                    Text("Khi bật, tất cả các trò chơi sẽ dùng bàn phím số A➔K to bản, một lá có thể chọn nhiều lần (không khóa phím), không phân biệt chất bài.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
                 Section(header: Text("Quy Ước So Chất Bài (Khi Chơi 52 Lá)")) {
                     Picker("Hệ Thống Chất", selection: $viewModel.suitPreset) {
                         ForEach(SuitRulePreset.allCases) { preset in
@@ -359,6 +351,14 @@ public struct SettingsView: View {
                         .frame(maxHeight: 250)
                     }
                 }
+                }
+                
+                Section(header: Text("Tùy Chọn Bàn Phím Số A➔K (Tất Cả Trò Chơi)")) {
+                    Toggle("Bàn phím số A➔K (Tất cả trò chơi)", isOn: $viewModel.isRankOnlyMode)
+                    
+                    Text("Khi bật, tất cả các trò chơi dùng bàn phím A➔K to bản. Chạm nhanh để nhập số không chất, hoặc bật công tắc Giữ vuốt ♥ ♦ ♣ ♠ dưới bàn phím rồi nhấn giữ số và vuốt lên chọn chất.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 
                 Section(header: Text("Hướng Dẫn Cơ Chế Chia Bài")) {

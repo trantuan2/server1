@@ -242,15 +242,18 @@ public struct ContentView: View {
                             }
                             .padding(.horizontal, 8)
                             .padding(.top, 2)
+                            .zIndex(1)
                             
                             // 52-Card Deck Grid (Fixed at the bottom like a keyboard)
                             Deck52GridView(viewModel: viewModel)
                                 .padding(.horizontal, 8)
                                 .padding(.bottom, 6)
+                                .zIndex(10)
                         }
                     }
                     .background(Color(.systemBackground))
                     .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: -2)
+                    .zIndex(10)
                 }
             }
             .navigationTitle("GiaLapSoBai")
