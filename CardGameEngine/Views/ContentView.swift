@@ -304,6 +304,7 @@ public struct ContentView: View {
 
 
         .navigationViewStyle(StackNavigationViewStyle())
+        .defersSystemGestures(on: viewModel.isRankOnlyActive ? [.bottom, .leading, .trailing] : Edge.Set())
     }
 }
 

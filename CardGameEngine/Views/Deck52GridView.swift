@@ -52,11 +52,264 @@ public struct Deck52GridView: View {
     }
 }
 
-// MARK: - PreferenceKey tracking exact frames of A->K keys in shared keypad space
-private struct RankKeyFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [Rank: CGRect] = [:]
-    static func reduce(value: inout [Rank: CGRect], nextValue: () -> [Rank: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+// MARK: - Shared Deterministic Geometry for 3-Row A->K Keypad & 4-Suit Popup
+private enum RankKeypadGeometry {
+    static let rows: [[Rank]] = [
+        [.ace, .two, .three, .four, .five],
+        [.six, .seven, .eight, .nine, .ten],
+        [.jack, .queen, .king]
+    ]
+    static let popupSuits: [Suit] = [.hearts, .diamonds, .clubs, .spades]
+    static let spacing: CGFloat = 6
+    static let popupHeight: CGFloat = 60
+    static let popupGapAboveKey: CGFloat = 10
+    
+    static func keyRect(rowIndex: Int, colIndex: Int, colCount: Int, in gridSize: CGSize) -> CGRect {
+        let totalRows = CGFloat(rows.count)
+        let rowHeight = max(1, (gridSize.height - spacing * (totalRows - 1)) / totalRows)
+        let cols = CGFloat(colCount)
+        let colWidth = max(1, (gridSize.width - spacing * (cols - 1)) / cols)
+        let x = CGFloat(colIndex) * (colWidth + spacing)
+        let y = CGFloat(rowIndex) * (rowHeight + spacing)
+        return CGRect(x: x, y: y, width: colWidth, height: rowHeight)
+    }
+    
+    static func hitTest(point: CGPoint, in gridSize: CGSize) -> (Rank, CGRect)? {
+        guard gridSize.width > 0, gridSize.height > 0 else { return nil }
+        // 1. Exact hit first
+        for (rIdx, row) in rows.enumerated() {
+            for (cIdx, rank) in row.enumerated() {
+                let rect = keyRect(rowIndex: rIdx, colIndex: cIdx, colCount: row.count, in: gridSize)
+                if rect.contains(point) {
+                    return (rank, rect)
+                }
+            }
+        }
+        // 2. Fallback: nearest key if finger landed on the 6pt gap between buttons
+        var best: (Rank, CGRect, CGFloat)? = nil
+        for (rIdx, row) in rows.enumerated() {
+            for (cIdx, rank) in row.enumerated() {
+                let rect = keyRect(rowIndex: rIdx, colIndex: cIdx, colCount: row.count, in: gridSize)
+                let expanded = rect.insetBy(dx: -spacing, dy: -spacing)
+                if expanded.contains(point) {
+                    let dx = point.x - rect.midX
+                    let dy = point.y - rect.midY
+                    let distSq = dx * dx + dy * dy
+                    if best == nil || distSq < best!.2 {
+                        best = (rank, rect, distSq)
+                    }
+                }
+            }
+        }
+        return best.map { ($0.0, $0.1) }
+    }
+    
+    static func popupRect(for keyRect: CGRect, gridWidth: CGFloat) -> CGRect {
+        let effectiveWidth = gridWidth > 0 ? gridWidth : 348
+        let width: CGFloat = min(236, max(196, effectiveWidth))
+        let minX: CGFloat = 0
+        let maxX: CGFloat = max(minX, effectiveWidth - width)
+        let originX = min(max(minX, keyRect.midX - width / 2), maxX)
+        let originY = keyRect.minY - popupHeight - popupGapAboveKey
+        return CGRect(x: originX, y: originY, width: width, height: popupHeight)
+    }
+}
+
+// MARK: - Native UIKit 0ms Touch Surface (Eliminates SwiftUI DragGesture & Edge Gate Lag)
+private struct RankKeypadTouchOverlay: UIViewRepresentable {
+    let isSwipeSuitEnabled: Bool
+    let isCardUsed: (Rank, Suit) -> Bool
+    let onPressChanged: (Rank, CGRect, CGFloat) -> Void
+    let onPopupOpened: (Rank, CGRect, CGFloat, Suit?) -> Void
+    let onHoverSuitChanged: (Suit?) -> Void
+    let onCommitRankOnly: (Rank) -> Void
+    let onCommitSuit: (Rank, Suit) -> Void
+    let onReset: () -> Void
+    
+    func makeUIView(context: Context) -> RankKeypadTouchView {
+        let view = RankKeypadTouchView()
+        updateCallbacks(on: view)
+        return view
+    }
+    
+    func updateUIView(_ uiView: RankKeypadTouchView, context: Context) {
+        updateCallbacks(on: uiView)
+    }
+    
+    private func updateCallbacks(on view: RankKeypadTouchView) {
+        view.isSwipeSuitEnabled = isSwipeSuitEnabled
+        view.isCardUsed = isCardUsed
+        view.onPressChanged = onPressChanged
+        view.onPopupOpened = onPopupOpened
+        view.onHoverSuitChanged = onHoverSuitChanged
+        view.onCommitRankOnly = onCommitRankOnly
+        view.onCommitSuit = onCommitSuit
+        view.onReset = onReset
+    }
+}
+
+private final class RankKeypadTouchView: UIView {
+    var isSwipeSuitEnabled: Bool = true
+    var isCardUsed: ((Rank, Suit) -> Bool)?
+    var onPressChanged: ((Rank, CGRect, CGFloat) -> Void)?
+    var onPopupOpened: ((Rank, CGRect, CGFloat, Suit?) -> Void)?
+    var onHoverSuitChanged: ((Suit?) -> Void)?
+    var onCommitRankOnly: ((Rank) -> Void)?
+    var onCommitSuit: ((Rank, Suit) -> Void)?
+    var onReset: (() -> Void)?
+    
+    private let holdDelay: TimeInterval = 0.11
+    private let instantSwipeUpThreshold: CGFloat = 10
+    
+    private let lightHaptic = UIImpactFeedbackGenerator(style: .light)
+    private let mediumHaptic = UIImpactFeedbackGenerator(style: .medium)
+    private let selectionHaptic = UISelectionFeedbackGenerator()
+    
+    private weak var activeTouch: UITouch?
+    private var pressedRank: Rank?
+    private var pressedKeyRect: CGRect = .zero
+    private var startPoint: CGPoint = .zero
+    private var currentPoint: CGPoint = .zero
+    private var isPopupOpen: Bool = false
+    private var hoveredSuit: Suit?
+    private var holdWorkItem: DispatchWorkItem?
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isMultipleTouchEnabled = false
+        isExclusiveTouch = true
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard activeTouch == nil, let touch = touches.first else { return }
+        let pt = touch.location(in: self)
+        guard let (rank, rect) = RankKeypadGeometry.hitTest(point: pt, in: bounds.size) else { return }
+        
+        activeTouch = touch
+        pressedRank = rank
+        pressedKeyRect = rect
+        startPoint = pt
+        currentPoint = pt
+        isPopupOpen = false
+        hoveredSuit = nil
+        
+        lightHaptic.prepare()
+        selectionHaptic.prepare()
+        onPressChanged?(rank, rect, bounds.width)
+        
+        if isSwipeSuitEnabled {
+            holdWorkItem?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                guard let self = self, self.pressedRank == rank, !self.isPopupOpen else { return }
+                self.openPopup()
+            }
+            holdWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + holdDelay, execute: item)
+        }
+    }
+    
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let active = activeTouch, touches.contains(active), let rank = pressedRank else { return }
+        let pt = active.location(in: self)
+        currentPoint = pt
+        
+        if isSwipeSuitEnabled && !isPopupOpen {
+            let dy = pt.y - startPoint.y
+            if dy <= -instantSwipeUpThreshold {
+                // Vuốt hướng lên >= 10pt -> bung popup 4 chất ngay lập tức không cần chờ hết 0.11s
+                holdWorkItem?.cancel()
+                holdWorkItem = nil
+                openPopup()
+                return
+            } else if !pressedKeyRect.insetBy(dx: -36, dy: -36).contains(pt) {
+                // Chỉ hủy giữ khi kéo trượt hẳn ra ngoài mặt phím
+                holdWorkItem?.cancel()
+                holdWorkItem = nil
+            }
+        }
+        
+        if isPopupOpen {
+            let newSuit = suitAt(point: pt, for: rank)
+            if newSuit != hoveredSuit {
+                hoveredSuit = newSuit
+                if newSuit != nil {
+                    selectionHaptic.selectionChanged()
+                    selectionHaptic.prepare()
+                }
+                onHoverSuitChanged?(newSuit)
+            }
+        }
+    }
+    
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let active = activeTouch, touches.contains(active), let rank = pressedRank else { return }
+        let endPt = active.location(in: self)
+        holdWorkItem?.cancel()
+        holdWorkItem = nil
+        
+        if isPopupOpen {
+            if let suit = suitAt(point: endPt, for: rank) {
+                mediumHaptic.impactOccurred()
+                onCommitSuit?(rank, suit)
+            }
+        } else {
+            // Chạm nhả nhanh bình thường -> nhập số không chất
+            if pressedKeyRect.insetBy(dx: -20, dy: -20).contains(endPt) {
+                onCommitRankOnly?(rank)
+            }
+        }
+        
+        clearTouchState()
+    }
+    
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let active = activeTouch, touches.contains(active) else { return }
+        clearTouchState()
+    }
+    
+    private func openPopup() {
+        guard let rank = pressedRank else { return }
+        isPopupOpen = true
+        lightHaptic.impactOccurred()
+        mediumHaptic.prepare()
+        let initialSuit = suitAt(point: currentPoint, for: rank)
+        hoveredSuit = initialSuit
+        onPopupOpened?(rank, pressedKeyRect, bounds.width, initialSuit)
+    }
+    
+    private func suitAt(point: CGPoint, for rank: Rank) -> Suit? {
+        let rect = RankKeypadGeometry.popupRect(for: pressedKeyRect, gridWidth: bounds.width)
+        // Còn nằm trong thân phím (chưa vuốt lên hướng popup) -> chưa chọn chất (thả tay = hủy an toàn)
+        guard point.y <= pressedKeyRect.minY + 4 else { return nil }
+        guard point.y >= rect.minY - 48 else { return nil }
+        guard point.x >= rect.minX - 24 && point.x <= rect.maxX + 24 else { return nil }
+        
+        let suits = RankKeypadGeometry.popupSuits
+        let slotWidth = rect.width / CGFloat(suits.count)
+        let rawIndex = Int(floor((point.x - rect.minX) / slotWidth))
+        let clampedIndex = min(max(0, rawIndex), suits.count - 1)
+        let suit = suits[clampedIndex]
+        
+        if isCardUsed?(rank, suit) == true {
+            return nil
+        }
+        return suit
+    }
+    
+    private func clearTouchState() {
+        holdWorkItem?.cancel()
+        holdWorkItem = nil
+        activeTouch = nil
+        pressedRank = nil
+        pressedKeyRect = .zero
+        isPopupOpen = false
+        hoveredSuit = nil
+        onReset?()
     }
 }
 
@@ -104,7 +357,7 @@ private struct CompactMiniSwitch: View {
     }
 }
 
-// MARK: - Rank-Only Keypad (A -> K for ALL games, with Press-Hold + Swipe Suit Picker ♥ ♦ ♣ ♠)
+// MARK: - Rank-Only Keypad (A -> K for ALL games, with 0ms UIKit Press-Hold + Swipe Suit Picker ♥ ♦ ♣ ♠)
 public struct RankOnlyGridView: View {
     @ObservedObject var viewModel: GameViewModel
     @AppStorage("server1_rank_swipe_suit_enabled") private var isSwipeSuitEnabled: Bool = true
@@ -113,44 +366,107 @@ public struct RankOnlyGridView: View {
     let row2: [Rank] = [.six, .seven, .eight, .nine, .ten]
     let row3: [Rank] = [.jack, .queen, .king]
     
-    // Thứ tự 4 chất trên popup nổi (trái -> phải)
-    private let popupSuits: [Suit] = [.hearts, .diamonds, .clubs, .spades]
-    
-    @State private var keyFrames: [Rank: CGRect] = [:]
-    @State private var keypadWidth: CGFloat = 0
     @State private var pressedRank: Rank? = nil
     @State private var activePopupRank: Rank? = nil
+    @State private var activeKeyRect: CGRect = .zero
+    @State private var activeGridWidth: CGFloat = 0
     @State private var hoveredSuit: Suit? = nil
-    @State private var dragStartLocation: CGPoint? = nil
-    @State private var currentDragLocation: CGPoint? = nil
-    @State private var holdWorkItem: DispatchWorkItem? = nil
-    
-    private let holdDelay: TimeInterval = 0.18
-    private let popupHeight: CGFloat = 60
-    private let popupGapAboveKey: CGFloat = 10
     
     public var body: some View {
         VStack(spacing: 6) {
-            // Row 1: A, 2, 3, 4, 5
-            HStack(spacing: 6) {
-                ForEach(row1) { rank in
-                    rankKeyCell(rank)
+            // 3 hàng phím A -> K phủ 1 lớp cảm ứng UIKit 0ms thống nhất (không bị delay ở 6-9 và J-K)
+            VStack(spacing: RankKeypadGeometry.spacing) {
+                // Row 1: A, 2, 3, 4, 5
+                HStack(spacing: RankKeypadGeometry.spacing) {
+                    ForEach(row1) { rank in
+                        RankButtonVisual(
+                            rank: rank,
+                            isPressed: pressedRank == rank,
+                            isPopupOpen: activePopupRank == rank,
+                            showSwipeHint: isSwipeSuitEnabled
+                        )
+                    }
+                }
+                
+                // Row 2: 6, 7, 8, 9, 10
+                HStack(spacing: RankKeypadGeometry.spacing) {
+                    ForEach(row2) { rank in
+                        RankButtonVisual(
+                            rank: rank,
+                            isPressed: pressedRank == rank,
+                            isPopupOpen: activePopupRank == rank,
+                            showSwipeHint: isSwipeSuitEnabled
+                        )
+                    }
+                }
+                
+                // Row 3: J, Q, K
+                HStack(spacing: RankKeypadGeometry.spacing) {
+                    ForEach(row3) { rank in
+                        RankButtonVisual(
+                            rank: rank,
+                            isPressed: pressedRank == rank,
+                            isPopupOpen: activePopupRank == rank,
+                            showSwipeHint: isSwipeSuitEnabled
+                        )
+                    }
                 }
             }
-            
-            // Row 2: 6, 7, 8, 9, 10
-            HStack(spacing: 6) {
-                ForEach(row2) { rank in
-                    rankKeyCell(rank)
+            .overlay(
+                RankKeypadTouchOverlay(
+                    isSwipeSuitEnabled: isSwipeSuitEnabled,
+                    isCardUsed: { rank, suit in
+                        viewModel.cardOwner(Card(rank: rank, suit: suit)) != nil
+                    },
+                    onPressChanged: { rank, rect, gridWidth in
+                        pressedRank = rank
+                        activeKeyRect = rect
+                        activeGridWidth = gridWidth
+                    },
+                    onPopupOpened: { rank, rect, gridWidth, initialSuit in
+                        activeKeyRect = rect
+                        activeGridWidth = gridWidth
+                        hoveredSuit = initialSuit
+                        withAnimation(.spring(response: 0.14, dampingFraction: 0.84)) {
+                            activePopupRank = rank
+                        }
+                    },
+                    onHoverSuitChanged: { suit in
+                        hoveredSuit = suit
+                    },
+                    onCommitRankOnly: { rank in
+                        viewModel.onRankTapped(rank)
+                    },
+                    onCommitSuit: { rank, suit in
+                        viewModel.onCardTapped(Card(rank: rank, suit: suit))
+                    },
+                    onReset: {
+                        pressedRank = nil
+                        hoveredSuit = nil
+                        withAnimation(.easeOut(duration: 0.10)) {
+                            activePopupRank = nil
+                        }
+                    }
+                )
+            )
+            .overlay(alignment: .topLeading) {
+                if let popupRank = activePopupRank {
+                    let rect = RankKeypadGeometry.popupRect(for: activeKeyRect, gridWidth: activeGridWidth)
+                    SuitSwipePopupView(
+                        rank: popupRank,
+                        suits: RankKeypadGeometry.popupSuits,
+                        hoveredSuit: hoveredSuit,
+                        ownerLookup: { suit in
+                            viewModel.cardOwner(Card(rank: popupRank, suit: suit))
+                        }
+                    )
+                    .frame(width: rect.width, height: rect.height)
+                    .offset(x: rect.minX, y: rect.minY)
+                    .allowsHitTesting(false)
+                    .transition(.scale(scale: 0.85, anchor: .bottom).combined(with: .opacity))
                 }
             }
-            
-            // Row 3: J, Q, K
-            HStack(spacing: 6) {
-                ForEach(row3) { rank in
-                    rankKeyCell(rank)
-                }
-            }
+            .zIndex(activePopupRank != nil ? 100 : 10)
             
             // Hàng công tắc nhỏ đặt ngay dưới A -> K (áp dụng cho tất cả các trò)
             HStack(spacing: 6) {
@@ -172,209 +488,10 @@ public struct RankOnlyGridView: View {
         }
         .padding(6)
         .background(
-            GeometryReader { geo in
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.secondarySystemBackground))
-                    .onAppear { keypadWidth = geo.size.width }
-                    .onChange(of: geo.size.width) { newWidth in keypadWidth = newWidth }
-            }
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemBackground))
         )
-        .coordinateSpace(name: "rankKeypadSpace")
-        .onPreferenceChange(RankKeyFramePreferenceKey.self) { frames in
-            keyFrames = frames
-        }
-        .overlay(alignment: .topLeading) {
-            if let popupRank = activePopupRank, let keyRect = keyFrames[popupRank] {
-                let rect = popupRect(for: keyRect)
-                SuitSwipePopupView(
-                    rank: popupRank,
-                    suits: popupSuits,
-                    hoveredSuit: hoveredSuit,
-                    ownerLookup: { suit in
-                        viewModel.cardOwner(Card(rank: popupRank, suit: suit))
-                    }
-                )
-                .frame(width: rect.width, height: rect.height)
-                .offset(x: rect.minX, y: rect.minY)
-                .allowsHitTesting(false)
-                .transition(.scale(scale: 0.85, anchor: .bottom).combined(with: .opacity))
-            }
-        }
         .zIndex(activePopupRank != nil ? 100 : 10)
-    }
-    
-    // MARK: - Single Rank Key Cell with Unified Press / Hold / Swipe-Up Gesture
-    @ViewBuilder
-    private func rankKeyCell(_ rank: Rank) -> some View {
-        let isPressed = (pressedRank == rank)
-        let isPopupOpen = (activePopupRank == rank)
-        
-        RankButtonVisual(
-            rank: rank,
-            isPressed: isPressed,
-            isPopupOpen: isPopupOpen,
-            showSwipeHint: isSwipeSuitEnabled
-        )
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(
-                    key: RankKeyFramePreferenceKey.self,
-                    value: [rank: geo.frame(in: .named("rankKeypadSpace"))]
-                )
-            }
-        )
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0, coordinateSpace: .named("rankKeypadSpace"))
-                .onChanged { value in
-                    handleDragChanged(for: rank, value: value)
-                }
-                .onEnded { value in
-                    handleDragEnded(for: rank, value: value)
-                }
-        )
-    }
-    
-    // MARK: - Gesture Handlers
-    private func handleDragChanged(for rank: Rank, value: DragGesture.Value) {
-        currentDragLocation = value.location
-        if pressedRank == nil {
-            pressedRank = rank
-            dragStartLocation = value.location
-            hoveredSuit = nil
-            
-            if isSwipeSuitEnabled {
-                holdWorkItem?.cancel()
-                let work = DispatchWorkItem {
-                    guard self.pressedRank == rank, self.activePopupRank == nil else { return }
-                    self.openSuitPopup(for: rank, currentLocation: self.currentDragLocation ?? value.location)
-                }
-                holdWorkItem = work
-                DispatchQueue.main.asyncAfter(deadline: .now() + holdDelay, execute: work)
-            }
-            return
-        }
-        
-        guard pressedRank == rank else { return }
-        
-        // Nếu bật vuốt chất và người dùng kéo ngón tay hướng lên trên >= 18pt, mở popup ngay tức thì
-        if isSwipeSuitEnabled && activePopupRank == nil, let start = dragStartLocation {
-            let dy = value.location.y - start.y
-            let dx = abs(value.location.x - start.x)
-            if dy <= -18 {
-                holdWorkItem?.cancel()
-                holdWorkItem = nil
-                openSuitPopup(for: rank, currentLocation: value.location)
-                return
-            } else if dy > 24 || dx > 34 {
-                // Kéo lệch mạnh ra ngoài trước khi mở popup -> hủy hẹn giờ giữ
-                holdWorkItem?.cancel()
-                holdWorkItem = nil
-            }
-        }
-        
-        // Nếu popup 4 chất đang mở -> cập nhật chất đang vuốt vào
-        if activePopupRank == rank, let keyRect = keyFrames[rank] {
-            let newSuit = suitAtLocation(value.location, for: rank, keyRect: keyRect)
-            if newSuit != hoveredSuit {
-                hoveredSuit = newSuit
-                if newSuit != nil {
-                    UISelectionFeedbackGenerator().selectionChanged()
-                }
-            }
-        }
-    }
-    
-    private func handleDragEnded(for rank: Rank, value: DragGesture.Value) {
-        holdWorkItem?.cancel()
-        holdWorkItem = nil
-        
-        guard pressedRank == rank else {
-            resetGestureState()
-            return
-        }
-        
-        if activePopupRank == rank {
-            // Đang mở popup chọn chất: nếu đang trỏ vào chất hợp lệ (chưa bị chia) -> chọn lá đó
-            let finalSuit: Suit?
-            if let keyRect = keyFrames[rank] {
-                finalSuit = suitAtLocation(value.location, for: rank, keyRect: keyRect)
-            } else {
-                finalSuit = hoveredSuit
-            }
-            
-            if let suit = finalSuit {
-                let card = Card(rank: rank, suit: suit)
-                if viewModel.cardOwner(card) == nil {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    viewModel.onCardTapped(card)
-                }
-            }
-        } else {
-            // Chạm nhanh bình thường: chỉ kích hoạt nếu thả tay trong vùng nút (mở rộng nhẹ 16pt)
-            if let keyRect = keyFrames[rank] {
-                if keyRect.insetBy(dx: -16, dy: -16).contains(value.location) {
-                    viewModel.onRankTapped(rank)
-                }
-            } else {
-                viewModel.onRankTapped(rank)
-            }
-        }
-        
-        resetGestureState()
-    }
-    
-    private func openSuitPopup(for rank: Rank, currentLocation: CGPoint) {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.spring(response: 0.16, dampingFraction: 0.82)) {
-            activePopupRank = rank
-        }
-        if let keyRect = keyFrames[rank] {
-            hoveredSuit = suitAtLocation(currentLocation, for: rank, keyRect: keyRect)
-        }
-    }
-    
-    private func resetGestureState() {
-        holdWorkItem?.cancel()
-        holdWorkItem = nil
-        pressedRank = nil
-        dragStartLocation = nil
-        currentDragLocation = nil
-        hoveredSuit = nil
-        withAnimation(.easeOut(duration: 0.12)) {
-            activePopupRank = nil
-        }
-    }
-    
-    // MARK: - Popup Geometry & Hit-Test Helpers
-    private func popupRect(for keyRect: CGRect) -> CGRect {
-        let effectiveWidth = keypadWidth > 0 ? keypadWidth : 360
-        let width: CGFloat = min(236, max(196, effectiveWidth - 12))
-        let minX: CGFloat = 6
-        let maxX: CGFloat = max(minX, effectiveWidth - width - 6)
-        let originX = min(max(minX, keyRect.midX - width / 2), maxX)
-        let originY = keyRect.minY - popupHeight - popupGapAboveKey
-        return CGRect(x: originX, y: originY, width: width, height: popupHeight)
-    }
-    
-    private func suitAtLocation(_ point: CGPoint, for rank: Rank, keyRect: CGRect) -> Suit? {
-        let rect = popupRect(for: keyRect)
-        // Khi ngón tay vẫn còn nằm trong thân phím (chưa vuốt lên hướng thanh chất) -> chưa chọn chất nào (thả tay = hủy an toàn)
-        guard point.y <= keyRect.minY + 4 else { return nil }
-        // Vùng nhận rộng hơn một chút ở phía trên & hai bên để vuốt 1 tay cực nhạy mà không bị che tầm nhìn
-        guard point.y >= rect.minY - 44 else { return nil }
-        guard point.x >= rect.minX - 20 && point.x <= rect.maxX + 20 else { return nil }
-        
-        let slotWidth = rect.width / CGFloat(popupSuits.count)
-        let rawIndex = Int(floor((point.x - rect.minX) / slotWidth))
-        let clampedIndex = min(max(0, rawIndex), popupSuits.count - 1)
-        let suit = popupSuits[clampedIndex]
-        
-        // Không cho chọn trùng lá đã có người cầm
-        if viewModel.cardOwner(Card(rank: rank, suit: suit)) != nil {
-            return nil
-        }
-        return suit
     }
 }
 
