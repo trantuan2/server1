@@ -98,7 +98,7 @@ public enum GameType: String, CaseIterable, Identifiable, Codable {
         }
     }
     
-    public var minPlayers: Int { 2 }
+    public var minPlayers: Int { 1 }
     
     public var maxPlayers: Int {
         switch self {
@@ -116,9 +116,9 @@ public enum GameType: String, CaseIterable, Identifiable, Codable {
     public var descriptionVN: String {
         switch self {
         case .chan19:
-            return "19 lá/người (2-5 người). Dùng bàn phím số A➔K to bản giống Liêng & Sâm Lốc, nhập đủ 19 lá, hiển thị dãy bài trực quan theo thứ tự tăng dần."
+            return "19 lá/người (1-5 người). Dùng bàn phím số A➔K to bản giống Liêng & Sâm Lốc, nhập đủ 19 lá, hiển thị dãy bài trực quan theo thứ tự tăng dần."
         case .samLoc10:
-            return "10 lá/người (2-5 người). Khi nhập đủ 10 lá, tự động gom bài thành các cụm: Rác, Đôi, Sảnh, Sám (3 cây), Tứ quý (4 cây). Nhận diện Thắng trắng (Sảnh rồng, Tứ quý 2, 5 đôi, 3 sám, đồng màu)."
+            return "10 lá/người (1-5 người). Khi nhập đủ 10 lá, tự động gom bài thành các cụm: Rác, Đôi, Sảnh, Sám (3 cây), Tứ quý (4 cây). Nhận diện Thắng trắng (Sảnh rồng, Tứ quý 2, 5 đôi, 3 sám, đồng màu)."
         case .phom9:
             return "9 lá/người (Tụ 1 luôn 10 lá). Ghép các phỏm dọc (sảnh cùng chất) hoặc phỏm ngang (3-4 lá cùng số). Ai Ù (0 lá rác) thắng tuyệt đối; tính điểm các lá rác còn lại (A=1, J=11, Q=12, K=13), ít điểm nhất thắng; không có phỏm bị Móm (Cháy)."
         case .lieng3:
@@ -130,7 +130,7 @@ public enum GameType: String, CaseIterable, Identifiable, Codable {
         case .xiDach2:
             return "2 lá/người: Xì Bàng (A-A: 5021) > Xì Dách (A + 10/J/Q/K: 4000) > Ngũ Linh (5 lá ≤ 21đ) > Đủ tuổi (16-21đ) > Non (<16đ) > Quắc (>21đ)."
         case .xiTo2:
-            return "2 lá/người (2-10 người). Hỗ trợ nhận diện giọng nói tiếng Việt đầy đủ. Không tính kết quả hay hiện bảng điểm, chỉ hiển thị bài trên bàn."
+            return "2 lá/người (1-10 người). Hỗ trợ nhận diện giọng nói tiếng Việt đầy đủ. Không tính kết quả hay hiện bảng điểm, chỉ hiển thị bài trên bàn."
         case .texasHoldem:
             return "2 lá bài riêng (hole cards) + 5 lá bài chung (board). Tạo kết hợp 5 lá mạnh nhất từ 7 lá. 10 cấp bậc từ Mậu thầu đến Sảnh rồng đồng chất, đầy đủ sảnh bánh xe A-2-3-4-5 và kicker 5 bậc."
         }

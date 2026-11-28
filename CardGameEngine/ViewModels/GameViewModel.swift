@@ -1417,7 +1417,7 @@ public class GameViewModel: ObservableObject {
             }
         }
         
-        let totalOpponents = max(1, validIndices.count - 1)
+        let opponentCount = max(0, validIndices.count - 1)
         for i in validIndices {
             guard let arr = arrangements[i] else { continue }
             if let win = arr.instantWin {
@@ -1427,13 +1427,15 @@ public class GameViewModel: ObservableObject {
                 players[i].resultTitle = "⚠️ BỊ LỦNG"
                 players[i].resultDetail = "Chi trước yếu hơn chi sau (Xử thua)!"
             } else {
-                if totalOpponents == 1 {
+                if opponentCount == 0 {
+                    players[i].resultTitle = "✅ Xếp bài 3 chi hợp lệ"
+                } else if opponentCount == 1 {
                     let otherIdx = validIndices.first(where: { $0 != i }) ?? i
                     let otherArr = arrangements[otherIdx]
                     let isTie = otherArr != nil && arr.score1 == otherArr!.score1 && arr.score2 == otherArr!.score2 && arr.score3 == otherArr!.score3
                     players[i].resultTitle = players[i].score > 0 ? "🏆 THẮNG ĐỐI ĐẦU" : (isTie ? "HÒA ĐỐI ĐẦU" : "THUA ĐỐI ĐẦU")
                 } else {
-                    players[i].resultTitle = "Thắng \(players[i].score)/\(totalOpponents) nhà"
+                    players[i].resultTitle = "Thắng \(players[i].score)/\(opponentCount) nhà"
                 }
                 players[i].resultDetail = "Chi 1: \(arr.score1.descriptionVN) | Chi 2: \(arr.score2.descriptionVN) | Chi 3: \(arr.score3.descriptionVN)"
             }
@@ -1458,10 +1460,12 @@ public class GameViewModel: ObservableObject {
             let names = rank1Players.map { $0.name }.joined(separator: ", ")
             showdownSummary = "👑 Đồng Hạng 1: \(names) (Cùng thắng \(rank1Players[0].score) nhà)!"
         } else if let winner = rank1Players.first {
-            if totalOpponents == 1 {
+            if opponentCount == 0 {
+                showdownSummary = "✅ \(winner.name) — \(winner.resultTitle)"
+            } else if opponentCount == 1 {
                 showdownSummary = "🏆 \(winner.name) Thắng ván đấu (Ăn ít nhất 2 chi)!"
             } else {
-                showdownSummary = "🏆 \(winner.name) Về Nhất Binh 9 lá (Thắng \(winner.score)/\(totalOpponents) nhà)!"
+                showdownSummary = "🏆 \(winner.name) Về Nhất Binh 9 lá (Thắng \(winner.score)/\(opponentCount) nhà)!"
             }
         } else {
             showdownSummary = "⚠️ Không thể xác định người thắng (Có quân bài ẩn)"
